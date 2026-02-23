@@ -1,0 +1,19 @@
+.box {
+  width: 25px;
+  height: 25px;
+  border: 1px solid #fff;
+  background: pink;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.rotating {
+  animation: rotate 1s ease infinite;
+}
