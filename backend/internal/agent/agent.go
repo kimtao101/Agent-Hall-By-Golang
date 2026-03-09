@@ -1,29 +1,51 @@
 package agent
 
 import (
+	"os"
+	"strings"
 	"sync"
 
+	anthropicpkg "agent-backend/internal/anthropic"
 	"agent-backend/internal/openai"
+)
+
+const (
+	aiTypeAnthropic = "ANTHROPIC"
+	aiTypeDeepSeek  = "DEEPSEEK"
+	modelAnthropic  = "claude-sonnet-4-6"
+	modelDeepSeek   = "deepseek-chat"
 )
 
 // Agent 聊天代理结构体
 type Agent struct {
-	messages []Message
-	mu       sync.RWMutex
-	openai   *openai.Service
-	logger   openai.Logger
+	messages     []Message
+	mu           sync.RWMutex
+	openaiSvc    *openai.Service
+	anthropicSvc *anthropicpkg.Service
+	aiType       string
+	logger       openai.Logger
 }
 
 // New 创建新的 Agent 实例
-// svc: OpenAI 服务实例，如果为 nil 则使用默认配置
-func New(svc *openai.Service) *Agent {
-	if svc == nil {
-		svc = openai.NewDefaultService()
+func New(openaiSvc *openai.Service, anthropicSvc *anthropicpkg.Service) *Agent {
+	if openaiSvc == nil {
+		openaiSvc = openai.NewDefaultService()
 	}
+	if anthropicSvc == nil {
+		anthropicSvc = anthropicpkg.NewDefaultService()
+	}
+
+	aiType := strings.ToUpper(strings.TrimSpace(os.Getenv("AI_TYPE")))
+	if aiType != aiTypeAnthropic && aiType != aiTypeDeepSeek {
+		aiType = aiTypeDeepSeek
+	}
+
 	a := &Agent{
-		messages: []Message{},
-		openai:   svc,
-		logger:   svc.Logger,
+		messages:     []Message{},
+		openaiSvc:    openaiSvc,
+		anthropicSvc: anthropicSvc,
+		aiType:       aiType,
+		logger:       openaiSvc.Logger,
 	}
 	a.initializeSystemPrompt()
 	return a
@@ -40,50 +62,42 @@ func (a *Agent) initializeSystemPrompt() {
 }
 
 // AddMessage 添加消息到历史记录
-// role: 消息角色，可以是 "user" 或 "assistant"
-// content: 消息内容
 func (a *Agent) AddMessage(role string, content string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.messages = append(a.messages, Message{
-		Role:    role,
-		Content: content,
-	})
+	a.messages = append(a.messages, Message{Role: role, Content: content})
 	a.trimHistory()
 }
 
-// trimHistory 修剪历史记录，保持最多 20 条消息
+// trimHistory 修剪历史记录，保持最多 20 条消息（系统提示词 + 19 条）
 func (a *Agent) trimHistory() {
 	if len(a.messages) > 20 {
-		// 保留系统提示词和最近 19 条消息
 		a.messages = append([]Message{a.messages[0]}, a.messages[len(a.messages)-19:]...)
 	}
 }
 
 // GenerateResponse 生成响应
-// userInput: 用户输入
-// onChunk: 接收流式响应数据块的回调函数
-// 返回: 错误信息
 func (a *Agent) GenerateResponse(userInput string, onChunk func(string)) error {
 	a.logger.Info("收到聊天请求", map[string]interface{}{
 		"message": truncateString(userInput, 100) + "...",
+		"aiType":  a.aiType,
 	})
 
 	a.AddMessage("user", userInput)
 
-	messages := a.getHistoryCopy()
-	req := openai.ChatCompletionRequest{
-		Messages:    messages,
-		Model:       "deepseek-chat",
-		Temperature: 0.7,
-		Stream:      true,
+	var (
+		fullResponse string
+		err          error
+	)
+
+	if a.aiType == aiTypeAnthropic {
+		fullResponse, err = a.generateAnthropicResponse(onChunk)
+	} else {
+		fullResponse, err = a.generateDeepSeekResponse(onChunk)
 	}
 
-	fullResponse, err := a.openai.CreateChatCompletionStream(req, onChunk)
 	if err != nil {
-		a.logger.Error("生成响应失败", map[string]interface{}{
-			"error": err.Error(),
-		})
+		a.logger.Error("生成响应失败", map[string]interface{}{"error": err.Error()})
 		errorMessage := "抱歉，我在处理您的请求时遇到了错误。请稍后重试。"
 		onChunk(errorMessage)
 		a.AddMessage("assistant", errorMessage)
@@ -91,10 +105,52 @@ func (a *Agent) GenerateResponse(userInput string, onChunk func(string)) error {
 	}
 
 	a.AddMessage("assistant", fullResponse)
-	a.logger.Info("聊天响应完成", map[string]interface{}{
-		"responseLength": len(fullResponse),
-	})
+	a.logger.Info("聊天响应完成", map[string]interface{}{"responseLength": len(fullResponse)})
 	return nil
+}
+
+// generateAnthropicResponse 使用 Anthropic API 生成响应
+func (a *Agent) generateAnthropicResponse(onChunk func(string)) (string, error) {
+	history := a.getHistoryCopy()
+
+	// 分离 system prompt 和对话消息
+	var systemContent string
+	var chatMessages []anthropicpkg.Message
+
+	for _, msg := range history {
+		if msg.Role == "system" {
+			systemContent = msg.Content
+		} else {
+			chatMessages = append(chatMessages, anthropicpkg.Message{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+	}
+
+	req := anthropicpkg.ChatRequest{
+		Messages:  chatMessages,
+		System:    systemContent,
+		Model:     modelAnthropic,
+		MaxTokens: 2048,
+		Stream:    true,
+	}
+
+	return a.anthropicSvc.CreateChatCompletionStream(req, onChunk)
+}
+
+// generateDeepSeekResponse 使用 DeepSeek API 生成响应
+func (a *Agent) generateDeepSeekResponse(onChunk func(string)) (string, error) {
+	messages := a.getHistoryCopy()
+
+	req := openai.ChatCompletionRequest{
+		Messages:    messages,
+		Model:       modelDeepSeek,
+		Temperature: 0.7,
+		Stream:      true,
+	}
+
+	return a.openaiSvc.CreateChatCompletionStream(req, onChunk)
 }
 
 // GetHistory 获取消息历史记录的副本
@@ -112,10 +168,7 @@ func (a *Agent) getHistoryCopy() []openai.Message {
 	defer a.mu.RUnlock()
 	result := make([]openai.Message, len(a.messages))
 	for i, msg := range a.messages {
-		result[i] = openai.Message{
-			Role:    msg.Role,
-			Content: msg.Content,
-		}
+		result[i] = openai.Message{Role: msg.Role, Content: msg.Content}
 	}
 	return result
 }
@@ -136,7 +189,6 @@ func (a *Agent) GetMessagesCount() int {
 	return len(a.messages)
 }
 
-// truncateString 截断字符串到指定长度
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s

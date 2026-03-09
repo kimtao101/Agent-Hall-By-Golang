@@ -3,11 +3,13 @@ package server
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"agent-backend/internal/agent"
+	"agent-backend/internal/anthropic"
 	"agent-backend/internal/openai"
 	"agent-backend/internal/xiaohongshu"
 )
@@ -26,17 +28,16 @@ func New(port string) *Server {
 		port = "8016"
 	}
 
-	// 创建服务实例
+	// 创建 AI 服务实例
 	openaiSvc := openai.NewDefaultService()
-	agentInstance := agent.New(openaiSvc)
-	xhsSvc := xiaohongshu.NewService(openaiSvc, nil)
+	anthropicSvc := anthropic.NewDefaultService()
+
+	// 创建 Agent 和 Xiaohongshu 服务
+	agentInstance := agent.New(openaiSvc, anthropicSvc)
+	xhsSvc := xiaohongshu.NewService(openaiSvc, anthropicSvc, nil)
 
 	// 创建 Gin 引擎
 	r := gin.Default()
-
-	// 配置中间件
-	r.Use(corsMiddleware())
-	r.Use(gin.Recovery())
 
 	s := &Server{
 		router:  r,
@@ -44,6 +45,11 @@ func New(port string) *Server {
 		agent:   agentInstance,
 		xhsSvc:  xhsSvc,
 	}
+
+	// 配置中间件
+	r.Use(corsMiddleware())
+	r.Use(gin.Recovery())
+	r.Use(rateLimitMiddleware(100, 15*time.Minute))
 
 	// 注册路由
 	s.registerRoutes()
@@ -53,7 +59,7 @@ func New(port string) *Server {
 
 // registerRoutes 注册所有路由
 func (s *Server) registerRoutes() {
-	// 健康检查
+	// 健康检查（不受速率限制）
 	s.router.GET("/health", s.healthHandler)
 
 	// 基础聊天接口
@@ -88,6 +94,82 @@ func corsMiddleware() gin.HandlerFunc {
 	}
 }
 
+// ipEntry IP 速率限制记录
+type ipEntry struct {
+	mu        sync.Mutex
+	timestamps []time.Time
+}
+
+// rateLimiter 全局速率限制器
+type rateLimiter struct {
+	mu     sync.Mutex
+	ips    map[string]*ipEntry
+	limit  int
+	window time.Duration
+}
+
+func newRateLimiter(limit int, window time.Duration) *rateLimiter {
+	return &rateLimiter{
+		ips:    make(map[string]*ipEntry),
+		limit:  limit,
+		window: window,
+	}
+}
+
+func (rl *rateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	entry, ok := rl.ips[ip]
+	if !ok {
+		entry = &ipEntry{}
+		rl.ips[ip] = entry
+	}
+	rl.mu.Unlock()
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-rl.window)
+
+	// 清除过期时间戳
+	valid := entry.timestamps[:0]
+	for _, t := range entry.timestamps {
+		if t.After(cutoff) {
+			valid = append(valid, t)
+		}
+	}
+	entry.timestamps = valid
+
+	if len(entry.timestamps) >= rl.limit {
+		return false
+	}
+
+	entry.timestamps = append(entry.timestamps, now)
+	return true
+}
+
+// rateLimitMiddleware 速率限制中间件（跳过 /health）
+func rateLimitMiddleware(limit int, window time.Duration) gin.HandlerFunc {
+	rl := newRateLimiter(limit, window)
+	return func(c *gin.Context) {
+		if c.Request.URL.Path == "/health" {
+			c.Next()
+			return
+		}
+
+		ip := c.ClientIP()
+		if !rl.allow(ip) {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error": "Too many requests from this IP, please try again later.",
+			})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
 // healthHandler 健康检查
 func (s *Server) healthHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
@@ -105,16 +187,12 @@ type chatRequest struct {
 func (s *Server) chatHandler(c *gin.Context) {
 	var req chatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的消息",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的消息"})
 		return
 	}
 
 	if req.Message == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "消息不能为空",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "消息不能为空"})
 		return
 	}
 
@@ -123,9 +201,7 @@ func (s *Server) chatHandler(c *gin.Context) {
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "不支持流式响应",
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "不支持流式响应"})
 		return
 	}
 
@@ -135,9 +211,7 @@ func (s *Server) chatHandler(c *gin.Context) {
 	})
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "生成响应失败",
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成响应失败"})
 		return
 	}
 }
@@ -151,7 +225,5 @@ func (s *Server) historyHandler(c *gin.Context) {
 // clearHandler 清除聊天历史
 func (s *Server) clearHandler(c *gin.Context) {
 	s.agent.ClearHistory()
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-	})
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
