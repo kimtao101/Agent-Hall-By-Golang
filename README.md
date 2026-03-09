@@ -18,16 +18,11 @@
   ```
 ### 1.2 开发环境启动
 ```bash
-cd backend
-pnpm install
-pnpm run dev
+
 ```
 ### 1.3 生产环境部署
 ```bash
-cd backend
-pnpm install
-pnpm run build
-pnpm start
+
 ```
 
 ### 1.4 技术栈
@@ -382,8 +377,8 @@ Day5: 免税店购物 → 返程
 
 ### 12.4 技术实现
 - **前端**: React + Next.js + TypeScript
-- **后端**: Node.js + Express + TypeScript
-- **AI集成**: OpenAI SDK (集成DeepSeek API)
+- **后端**: go + gin
+- **AI集成**: OpenAI/Anthropic API
 - **数据流**: 前端 → 后端API → AI服务 → 流式响应 → 前端展示
 
 ## 13. Go 版本实现
@@ -403,7 +398,7 @@ Day5: 免税店购物 → 返程
 ```bash
 cd backend
 go mod tidy
-go run .
+go run ./cmd/server/
 ```
 
 ### 13.4 生产环境部署
