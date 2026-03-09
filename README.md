@@ -1,537 +1,312 @@
-# Agent-Dev
-- 主要功能：提供Agent大厅
-  - 小红书智能文案生成器：根据用户输入的场景和参数，生成符合小红书风格的文案
-  - 其余Agent待开发...
+# Agent Hall Backend - 智能体大厅后端
 
+基于 Go + Gin 框架实现的智能体大厅后端服务，采用标准 Go 项目布局，支持多种 AI 智能体扩展，兼容 Anthropic Claude 和 DeepSeek 两种 AI 服务提供商。
 
-## 1. 后端系统概述
-### 1.0 前言
-- 本项目后端系统同时提供 **Node.js + TypeScript** 和 **Go** 两种实现版本，功能完全兼容。
-- **Go 版本后端现已完整支持小红书智能体功能**（8大场景文案生成）。
-- 系统采用RESTful API设计，前端通过HTTP请求与后端交互。
-- 两个版本都可独立运行，API 接口保持一致。
-### 1.1 环境配置
-- **.env文件**:
-  ```
-  DEEPSEEK_API_KEY=your_api_key_here
-  PORT=8015
-  ```
-### 1.2 开发环境启动
-```bash
+## 📋 目录
 
-```
-### 1.3 生产环境部署
-```bash
+- [项目概述](#项目概述)
+- [项目结构](#项目结构)
+- [技术栈](#技术栈)
+- [快速开始](#快速开始)
+- [环境配置](#环境配置)
+- [API 接口文档](#api-接口文档)
+- [架构设计](#架构设计)
+- [开发指南](#开发指南)
+- [部署指南](#部署指南)
 
-```
+## 项目概述
 
-### 1.4 技术栈
-- **编程语言**: TypeScript
-- **Web框架**: Express.js
-- **AI集成**: OpenAI SDK (集成DeepSeek API)
-- **环境管理**: dotenv
-- **日志系统**: winston
-- **安全措施**: express-rate-limit
-- **包管理**: pnpm
+Agent Hall Backend 是一个功能完整的智能体大厅后端服务，提供：
 
-### 1.5 系统架构图
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   前端应用      │     │   后端服务      │     │  DeepSeek API   │
-│   (Next.js)     │────>│   (Express)     │────>│   (OpenAI SDK)  │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-        ▲                        │                        │
-        │                        │                        │
-        └────────────────────────┘                        │
-                         │                                 │
-                         └─────────────────────────────────┘
-```
+- **多 AI 提供商支持**: 兼容 Anthropic Claude 和 DeepSeek 两种 AI 服务
+- **智能体扩展架构**: 模块化设计，支持快速添加新的 AI 智能体
+- **流式响应**: 支持实时流式聊天响应
+- **RESTful API**: 标准化的 REST API 接口
+- **速率限制**: 内置 IP 级别速率限制保护
+- **CORS 支持**: 跨域资源共享配置
 
-## 2. 核心模块功能说明
-
-### 2.1 环境配置模块 (`src/env.ts`)
-- **功能**: 负责加载和管理环境变量
-- **实现细节**:
-  - 使用dotenv加载.env文件中的配置
-  - 设置OPENAI_API_KEY环境变量，确保OpenAI SDK正确初始化
-  - 在所有模块加载之前执行，确保环境变量的可用性
-
-### 2.2 OpenAI服务模块 (`src/openaiService.ts`)
-- **功能**: 封装OpenAI SDK调用，处理AI模型请求
-- **核心功能**:
-  - 初始化OpenAI实例，配置DeepSeek API 
-  - 实现聊天对话功能，支持流式响应 (createChatCompletion,createChatCompletionStream)
-  - 提供详细的日志记录 (记录请求参数、响应数据、错误信息)
-  - 处理API调用错误 (捕获OpenAI SDK异常，返回友好错误提示)s
-
-### 2.3 Agent模块 (`src/agent.ts`)
-- **功能**: 维护对话上下文，管理聊天历史
-- **核心功能**:
-  - 管理对话历史记录 (addMessage、getHistory、clearHistory)
-  - 自动裁剪过长的历史记录 (trimHistory,保存20条)
-  - 调用OpenAI服务生成响应 (generateResponse ->createChatCompletionStream)
-  - 处理流式响应的回调 (onChunk)
-
-### 2.4 服务器模块 (`src/index.ts`)
-- **功能**: 提供HTTP API端点，处理客户端请求
-- **核心功能**:
-  - 配置Express中间件 (CORS、JSON解析、日志记录)
-  - 实现API端点 (POST /chat, GET /history, POST /clear, GET /health)
-  - 处理请求限流 (express-rate-limit)
-  - 提供健康检查 (GET /health)
-  - 全局错误z处理 --中间件(捕获所有未处理异常)
-
-## 3. 主要业务流程
-
-### 3.1 聊天对话流程
-
-#### 数据流向
-```
-前端输入 → API请求 → 服务器处理 → Agent处理 → OpenAI服务调用 → DeepSeek API → 流式响应 → 前端展示
-```
-
-#### 处理步骤
-1. **接收请求**:
-   - 前端发送POST请求到`/chat`端点
-   - 服务器验证请求参数
-
-2. **上下文处理**:
-   - Agent添加用户消息到对话历史
-   - Agent裁剪过长的历史记录
-
-3. **AI调用**:
-   - OpenAI服务创建流式聊天请求
-   - 发送请求到DeepSeek API
-   - 接收流式响应
-
-4. **响应处理**:
-   - 逐块处理AI响应
-   - 通过Server-Sent Events流式返回给前端
-   - 更新对话历史
-
-5. **错误处理**:
-   - 捕获API调用错误
-   - 返回友好的错误提示
-   - 记录详细的错误信息
-
-## 4. 关键API接口说明
-
-### 4.1 `/chat` (POST)
-- **功能**: 处理聊天消息，返回AI响应
-- **请求体**:
-  ```json
-  {
-    "message": "用户消息内容"
-  }
-  ```
-- **响应**: 流式文本响应
-- **状态码**:
-  - 200: 成功
-  - 400: 请求参数错误
-  - 500: 服务器内部错误
-
-### 4.2 `/history` (GET)
-- **功能**: 获取聊天历史记录
-- **响应**:
-  ```json
-  [
-    {
-      "role": "system",
-      "content": "系统提示"
-    },
-    {
-      "role": "user",
-      "content": "用户消息"
-    },
-    {
-      "role": "assistant",
-      "content": "AI响应"
-    }
-  ]
-  ```
-
-### 4.3 `/clear` (POST)
-- **功能**: 清除聊天历史记录
-- **响应**:
-  ```json
-  {
-    "success": true
-  }
-  ```
-
-### 4.4 `/health` (GET)
-- **功能**: 健康检查
-- **响应**:
-  ```json
-  {
-    "status": "ok",
-    "timestamp": "2026-02-03T14:30:00Z"
-  }
-  ```
-
-## 5. 数据库设计与交互逻辑
-
-### 5.1 数据存储方案
-- **当前实现**: 内存存储
-  - 对话历史存储在Agent实例的内存中
-  - 服务重启后数据会丢失
-
-### 5.2 未来扩展建议
-- **Redis存储**:
-  - 优点: 高性能，支持TTL，适合会话管理
-  - 实现: 使用Redis存储对话历史，设置合理的过期时间
-
-- **数据库存储**:
-  - 优点: 持久化存储，支持复杂查询
-  - 实现: 使用PostgreSQL存储对话历史，设计合理的表结构
-
-## 6. 重要的技术实现细节
-
-### 6.1 流式响应实现
-- **技术**: Server-Sent Events (SSE)
-- **实现**: 
-  - 使用Express的`res.write()`方法逐块发送数据
-  - 设置`Transfer-Encoding: chunked`头
-  - 前端使用`getReader()`处理流式响应
-
-### 6.2 错误处理机制
-- **多层错误捕获**:
-  - API端点级错误捕获
-  - Agent级错误捕获
-  - OpenAI服务级错误捕获
-  - 全局错误处理中间件
-
-- **错误类型处理**:
-  - API调用失败 (402, 403等)
-  - 参数错误
-  - 网络错误
-  - 服务内部错误
-
-### 6.3 安全性措施
-- **请求限流**:
-  - 使用express-rate-limit限制请求频率
-  - 防止API滥用
-
-- **敏感信息保护**:
-  - 使用环境变量管理API密钥
-  - 避免在日志中记录敏感信息
-  - 不在响应中暴露内部错误细节
-
-### 6.4 性能优化
-- **对话历史管理**:
-  - 自动裁剪过长的历史记录
-  - 只保留最近的对话内容
-
-- **流式处理**:
-  - 减少用户等待时间
-  - 提高系统响应速度
-
-## 8. 代码结构
+## 项目结构
 
 ```
 backend/
-├── src/
-│   ├── env.ts              # 环境变量配置
-│   ├── openaiService.ts    # OpenAI SDK封装
-│   ├── agent.ts            # 对话管理
-│   ├── index.ts            # 服务器主文件
-│   └── openaiService.test.ts # 测试文件
-├── logs/
-│   ├── combined.log        # 综合日志
-│   └── error.log           # 错误日志
-├── .env                    # 环境配置文件
-├── package.json            # 项目配置
-├── pnpm-lock.yaml          # 依赖锁文件
-└── tsconfig.json           # TypeScript配置
+├── cmd/
+│   └── server/              # 应用程序入口
+│       └── main.go          # 主入口文件
+├── internal/                # 内部包（不可被外部导入）
+│   ├── agent/               # 基础对话 Agent
+│   │   ├── agent.go         # Agent 核心逻辑
+│   │   └── types.go         # 类型定义
+│   ├── anthropic/           # Anthropic Claude 服务
+│   │   ├── service.go       # API 封装
+│   │   └── types.go         # 类型定义
+│   ├── openai/              # OpenAI/DeepSeek 服务
+│   │   ├── service.go       # API 封装
+│   │   └── types.go         # 类型定义
+│   ├── server/              # HTTP 服务器
+│   │   └── server.go        # 服务器配置和路由
+│   └── xiaohongshu/         # 小红书智能体 ⭐示例Agent
+│       ├── handler.go       # HTTP 处理器
+│       ├── service.go       # 业务逻辑
+│       ├── prompts.go       # 提示词模板
+│       └── types.go         # 类型定义
+├── pkg/                     # 公共包（可被外部导入）
+│   └── utils/               # 工具函数
+│       └── string.go        # 字符串工具
+├── _old/                    # 旧代码备份
+├── .ENV.example             # 环境变量模板
+├── .ENV                     # 环境变量配置（需创建）
+├── go.mod                   # Go 模块配置
+├── go.sum                   # 依赖锁定
+├── README.md                # 项目文档
+└── agent-backend.exe        # 编译后的可执行文件
 ```
 
-## 9. 常见问题与解决方案
+## 技术栈
 
-### 9.1 API调用失败
-- **症状**: 前端显示"I apologize, but I encountered an error while processing your request"
-- **原因**: 
-  - API密钥无效或过期
-  - 账户余额不足
-  - 网络连接问题
-- **解决方案**:
-  - 检查API密钥配置
-  - 充值DeepSeek账户
-  - 检查网络连接
+- **语言**: Go 1.24+
+- **Web 框架**: Gin v1.11.0
+- **AI 服务**: 
+  - Anthropic Claude API (claude-sonnet-4-6)
+  - DeepSeek API (deepseek-chat)
+- **项目布局**: 标准 Go 项目布局
+- **配置管理**: godotenv
+- **HTTP 客户端**: 标准库 net/http
 
-### 9.2 前端无法连接后端
-- **症状**: 浏览器控制台显示"Failed to fetch"
-- **原因**:
-  - 后端服务未运行
-  - 端口配置错误
-  - CORS配置问题
-- **解决方案**:
-  - 启动后端服务
-  - 检查前端API地址配置
-  - 检查CORS中间件配置
+## 快速开始
 
-### 9.3 流式响应不工作
-- **症状**: 前端等待完整响应后才显示
-- **原因**:
-  - 后端未启用流式响应
-  - 前端未正确处理流式响应
-- **解决方案**:
-  - 确保后端设置了`stream: true`
-  - 检查前端`getReader()`实现
+### 前置要求
 
-## 10. 技术栈选择理由
+- Go 1.24 或更高版本
+- 有效的 Anthropic API Key 或 DeepSeek API Key
+- Windows/Linux/macOS 操作系统
 
-- **TypeScript**: 提供类型安全，减少运行时错误
-- **Express.js**: 轻量高效，适合构建API服务
-- **OpenAI SDK**: 官方支持，集成方便，功能完善
-- **winston**: 强大的日志系统，支持多传输目标
-- **express-rate-limit**: 简单有效的请求限流方案
-- **pnpm**: 高性能包管理器，节省磁盘空间
+### 1. 克隆项目
 
-## 11. 未来扩展建议
-
-1. **多模型支持**: 集成多个AI模型，根据不同场景选择合适的模型
-2. **会话管理**: 实现用户会话管理，支持多用户同时使用
-3. **工具集成**: 添加更多工具能力，如web搜索、文件处理等
-4. **监控系统**: 实现更完善的监控和告警机制
-5. **缓存系统**: 添加响应缓存，提高系统性能
-6. **文档完善**: 添加Swagger文档，自动生成API文档
-
-## 12. 小红书Agent功能介绍
-
-### 12.1 功能概述
-小红书Agent是一个专门为小红书平台设计的智能文案生成系统，支持8大核心内容场景：美妆护肤、时尚穿搭、旅行攻略、美食探店、家居好物、健身运动、育儿分享、科技数码。
-
-### 12.2 核心功能
-1. **场景选择**: 直观的场景导航界面，支持8大核心场景
-2. **参数配置**: 场景化的参数表单，根据不同场景提供定制化输入字段
-3. **智能生成**: 基于AI的文案生成引擎，根据场景和参数生成高质量小红书风格文案
-4. **文案编辑**: 实时编辑功能，支持标签管理和格式调整
-5. **效果预览**: 小红书风格的实时预览，支持一键复制
-
-### 12.3 使用示例
-
-#### 示例1: 美妆护肤场景
-**输入参数**:
-- 产品名称: XX品牌精华液
-- 品牌: XX护肤
-- 价格: 299
-- 适合肤质: 干性
-- 使用感受: 质地轻薄，易吸收，不油腻
-- 效果: 保湿效果明显，肌肤变得光滑细腻
-
-**生成文案**:
-```
-💖 挖到宝了！这款精华液让我的干皮起死回生～
-
-最近被闺蜜安利了XX品牌的这款精华液，用了两周真的惊艳到我了！
-
-✨ 质地：轻薄如水，上脸秒吸收，完全不油腻，夏天用也毫无负担
-✨ 效果：干皮救星本星！原本卡粉的脸颊现在变得水当当，早上起床皮肤还是透亮的
-✨ 价格：299元/30ml，性价比超高，学生党也能负担
-
-成分党看过来：主打玻尿酸和神经酰胺，深层补水同时修护屏障，敏感肌也可以放心用～
-
-干皮姐妹一定要试试，我已经安利给身边所有干皮朋友了！
-#护肤好物 #干皮救星 #精华液推荐
-```
-
-#### 示例2: 旅行攻略场景
-**输入参数**:
-- 目的地: 三亚
-- 行程天数: 5
-- 预算: 5000
-- 主要景点: 亚龙湾、蜈支洲岛、天涯海角
-- 特色美食: 海鲜、清补凉、海南粉
-
-**生成文案**:
-```
-🌴 三亚5天4晚超详细攻略，人均5000玩到爽！
-
-前阵子和闺蜜去了三亚，做了超详细的攻略，玩得超开心，分享给大家～
-
-📅 行程安排：
-Day1: 抵达三亚 → 亚龙湾海滩
-Day2: 蜈支洲岛一日游
-Day3: 天涯海角 → 鹿回头
-Day4: 南山文化旅游区 → 大小洞天
-Day5: 免税店购物 → 返程
-
-🍤 必吃美食：
-- 第一市场海鲜（推荐阿浪海鲜，新鲜又实惠）
-- 椰梦长廊的清补凉（解暑神器）
-- 街头小店的海南粉（地道又便宜）
-
-💰 省钱贴士：
-- 机票提前1个月订，避开节假日
-- 住宿选择亚龙湾附近，性价比高
-- 景点门票在网上预订，比现场买便宜
-
-☀️ 注意事项：
-- 防晒！防晒！防晒！重要的事情说三遍
-- 带好泳衣和沙滩鞋
-- 准备一些现金，部分小店可能不支持移动支付
-
-三亚真的是国内最适合度假的地方了，蓝天碧海白沙滩，随便拍都好看～
-#三亚旅行 #旅行攻略 #海岛度假
-```
-
-### 12.4 技术实现
-- **前端**: React + Next.js + TypeScript
-- **后端**: go + gin
-- **AI集成**: OpenAI/Anthropic API
-- **数据流**: 前端 → 后端API → AI服务 → 流式响应 → 前端展示
-
-## 13. Go 版本实现
-
-### 13.1 概述
-本系统同时提供 Go 语言版本的后端实现，与 TypeScript 版本功能完全兼容。Go 版本具有更高的性能和更低的资源消耗，适合生产环境部署。
-
-### 13.2 环境配置
-- **环境变量**:
-  ```
-  DEEPSEEK_API_KEY=your_api_key_here
-  DEEPSEEK_API_BASE_URL=https://api.deepseek.com
-  PORT=8120
-  ```
-
-### 13.3 开发环境启动
 ```bash
+git clone <repository-url>
 cd backend
-go mod tidy
+```
+
+### 2. 安装依赖
+
+```bash
+go mod download
+```
+
+### 3. 配置环境变量
+
+```bash
+# 复制环境变量模板
+cp .ENV.example .ENV
+
+# 编辑 .ENV 文件，配置 AI 服务
+```
+
+### 4. 运行服务
+
+```bash
+# 开发模式
 go run ./cmd/server/
+
+# 编译后运行
+go build -o agent-backend.exe ./cmd/server/
+./agent-backend.exe
 ```
 
-### 13.4 生产环境部署
+### 5. 验证服务
+
 ```bash
-cd backend
-go build -o agent-backend
-./agent-backend
+curl http://localhost:8018/health
 ```
 
-### 13.5 技术栈
-- **编程语言**: Go 1.24+
-- **Web框架**: Gin
-- **AI集成**: 原生 HTTP 客户端（集成 DeepSeek API）
-- **日志系统**: 标准库 log + 自定义 Logger 接口
-- **并发控制**: sync.RWMutex
-- **包管理**: go mod
+预期响应：
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-03-09T19:25:23+08:00"
+}
+```
 
-### 13.6 核心模块功能说明
+## 环境配置
 
-#### 13.6.1 类型定义模块 (`types.go`)
-- **功能**: 定义共享的数据结构
-- **核心类型**:
-  - `Message`: 聊天消息结构（Role, Content）
+### 环境变量说明
 
-#### 13.6.2 OpenAI 服务模块 (`openai_service.go`)
-- **功能**: 封装 DeepSeek API 调用
-- **核心功能**:
-  - `CreateChatCompletion()`: 非流式聊天完成
-  - `CreateChatCompletionStream()`: 流式聊天完成（SSE）
-  - `NewOpenAIService()`: 创建服务实例
-  - `GetDefaultOpenAIService()`: 从环境变量获取配置
-- **类型安全**:
-  - `ChatCompletionRequest`: 请求参数
-  - `ChatCompletionResponse`: 响应数据
-  - `StreamChunk` / `StreamChoice`: 流式响应结构
-  - `Usage`: Token 使用统计
-- **日志和错误处理**:
-  - `Logger` 接口和 `DefaultLogger` 实现
-  - 请求日志脱敏（用户消息截断到 100 字符）
-  - 完整的错误处理和状态码检查
-  - 请求耗时统计
+| 变量名 | 必填 | 默认值 | 描述 |
+|--------|------|--------|------|
+| `AI_TYPE` | 否 | `DEEPSEEK` | AI 服务类型：`ANTHROPIC` 或 `DEEPSEEK` |
+| `ANTHROPIC_API_KEY` | 条件必填 | - | Anthropic API 密钥（当 AI_TYPE=ANTHROPIC 时必填） |
+| `ANTHROPIC_BASE_URL` | 否 | `https://api.aicodemirror.com/api/claudecode` | Anthropic API 基础地址 |
+| `DEEPSEEK_API_KEY` | 条件必填 | - | DeepSeek API 密钥（当 AI_TYPE=DEEPSEEK 时必填） |
+| `DEEPSEEK_BASE_URL` | 否 | `https://api.deepseek.com` | DeepSeek API 基础地址 |
+| `PORT` | 否 | `8016` | 服务监听端口 |
 
-#### 13.6.3 Agent 模块 (`agent.go`)
-- **功能**: 维护对话上下文，管理聊天历史
-- **核心功能**:
-  - `NewAgent()`: 创建 Agent 实例
-  - `GenerateResponse()`: 生成流式响应
-  - `AddMessage()`: 添加消息到历史
-  - `GetHistory()`: 获取聊天历史
-  - `ClearHistory()`: 清空历史记录
-- **线程安全**:
-  - 使用 `sync.RWMutex` 保护共享状态
-  - 支持并发请求处理
-- **历史管理**:
-  - 自动修剪历史记录（最多 20 条）
-  - 保留系统提示词
+### 配置示例
 
-#### 13.6.4 小红书服务模块 (`xiaohongshu.go`)
-- **功能**: 小红书文案生成服务
-- **核心功能**:
-  - `GenerateCopy()`: 根据场景和配置生成小红书文案
-  - 支持 8 大场景：美妆、穿搭、旅行、美食、家居、健身、母婴、数码
-  - 每个场景有定制化的提示词模板
-  - 使用 DeepSeek API 生成符合小红书风格的文案
+#### 使用 Anthropic Claude
 
-### 13.6.5 服务器模块 (`main.go`)
-- **功能**: 提供 HTTP API 端点
-- **核心功能**:
-  - 配置 Gin 中间件（CORS）
-  - 实现 API 端点（`/chat`, `/history`, `/clear`, `/health`, `/xiaohongshu/copy`）
-  - 流式响应处理（Server-Sent Events）
-  - 请求参数验证
+```env
+AI_TYPE=ANTHROPIC
+ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxx
+ANTHROPIC_BASE_URL=https://api.anthropic.com
+PORT=8018
+```
 
-### 13.7 API 端点说明
+#### 使用 DeepSeek
 
-#### 13.7.1 `/chat` (POST)
-- **功能**: 处理聊天消息，返回 AI 响应
-- **请求体**:
-  ```json
+```env
+AI_TYPE=DEEPSEEK
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+PORT=8018
+```
+
+#### 兼容模式（优先使用 DeepSeek，回退到 Anthropic）
+
+```env
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
+ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxx
+PORT=8018
+```
+
+## API 接口文档
+
+### 基础接口
+
+#### 1. 健康检查
+
+**接口**: `GET /health`
+
+**描述**: 检查服务运行状态
+
+**响应示例**:
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-03-09T19:25:23+08:00"
+}
+```
+
+#### 2. 聊天接口（流式）
+
+**接口**: `POST /chat`
+
+**描述**: 发送消息并获取流式响应
+
+**请求体**:
+```json
+{
+  "message": "你好，请介绍一下你自己"
+}
+```
+
+**响应格式**: `text/plain` 流式响应
+
+**请求示例**:
+```bash
+curl -X POST http://localhost:8018/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "你好，请介绍一下你自己"}'
+```
+
+#### 3. 获取聊天历史
+
+**接口**: `GET /history`
+
+**描述**: 获取当前会话的聊天历史记录
+
+**响应示例**:
+```json
+[
   {
-    "message": "用户消息内容"
+    "role": "system",
+    "content": "You are a helpful research assistant..."
+  },
+  {
+    "role": "user",
+    "content": "你好，请介绍一下你自己"
+  },
+  {
+    "role": "assistant",
+    "content": "你好！我是一个智能助手..."
   }
-  ```
-- **响应**: 流式文本响应
-- **状态码**:
-  - 200: 成功
-  - 400: 请求参数错误
-  - 500: 服务器内部错误
+]
+```
 
-#### 13.7.2 `/history` (GET)
-- **功能**: 获取聊天历史记录
-- **响应**:
-  ```json
-  [
-    {
-      "role": "system",
-      "content": "系统提示"
-    },
-    {
-      "role": "user",
-      "content": "用户消息"
-    },
-    {
-      "role": "assistant",
-      "content": "AI 响应"
-    }
-  ]
-  ```
+#### 4. 清除聊天历史
 
-#### 13.7.3 `/clear` (POST)
-- **功能**: 清除聊天历史记录
-- **响应**:
-  ```json
+**接口**: `POST /clear`
+
+**描述**: 清除当前会话的聊天历史记录
+
+**响应示例**:
+```json
+{
+  "success": true
+}
+```
+
+### 小红书智能体接口
+
+#### 5. 获取所有文案场景
+
+**接口**: `GET /xiaohongshu/scenes`
+
+**描述**: 获取小红书文案生成的所有可用场景
+
+**响应示例**:
+```json
+[
   {
-    "success": true
+    "id": "beauty",
+    "name": "美妆护肤",
+    "description": "美妆、护肤、彩妆等产品文案"
+  },
+  {
+    "id": "food",
+    "name": "美食探店",
+    "description": "餐厅、美食、饮品推荐文案"
+  },
+  {
+    "id": "travel",
+    "name": "旅行攻略",
+    "description": "旅游景点、旅行体验分享文案"
   }
-  ```
+]
+```
 
-#### 13.7.4 `/health` (GET)
-- **功能**: 健康检查
-- **响应**:
-  ```json
-  {
-    "status": "ok",
-    "timestamp": "2026-02-11T14:30:00Z"
+#### 6. 生成小红书文案
+
+**接口**: `POST /xiaohongshu/copy`
+
+**描述**: 根据配置生成小红书风格文案
+
+**请求体**:
+```json
+{
+  "scene": "beauty",
+  "config": {
+    "productName": "小棕瓶精华",
+    "brand": "雅诗兰黛",
+    "price": "999",
+    "usageFeel": "吸收很快，不油腻",
+    "effect": "肤色提亮明显",
+    "recommendation": "适合熬夜肌"
   }
-  ```
+}
+```
 
-#### 13.7.5 `/xiaohongshu/copy` (POST)
-- **功能**: 生成小红书文案
-- **请求体**:
-  ```json
-  {
+**响应示例**:
+```json
+{
+  "copy": "✨熬夜党的救星来啦！🌟\n\n今天要给大家安利这款雅诗兰黛小棕瓶精华～💕\n\n💰价格：999元\n\n🌟使用感受：\n吸收超级快！完全不油腻，用完皮肤水润润的～\n\n✨效果：\n肤色提亮真的太明显了！坚持用下来，素颜都自信满满！\n\n👉特别推荐给经常熬夜的姐妹们，真的绝绝子！\n\n#雅诗兰黛 #小棕瓶 #护肤 #熬夜肌 #美妆分享"
+}
+```
+
+**请求示例**:
+```bash
+curl -X POST http://localhost:8018/xiaohongshu/copy \
+  -H "Content-Type: application/json" \
+  -d '{
     "scene": "beauty",
     "config": {
       "productName": "小棕瓶精华",
@@ -541,112 +316,580 @@ go build -o agent-backend
       "effect": "肤色提亮明显",
       "recommendation": "适合熬夜肌"
     }
-  }
-  ```
-- **响应**:
-  ```json
-  {
-    "copy": "生成的文案内容..."
-  }
-  ```
-- **支持的场景**: `beauty`, `fashion`, `travel`, `food`, `home`, `fitness`, `parenting`, `tech`
-
-### 13.8 Go 版本与 TypeScript 版本对比
-
-| 特性 | TypeScript 版本 | Go 版本 | 优势 |
-|------|----------------|---------|------|
-| 性能 | 中等 | 高 | Go 版本性能更优 |
-| 内存占用 | 较高 | 较低 | Go 版本资源消耗更少 |
-| 类型安全 | TypeScript 编译时 | Go 编译时 | 两者都提供类型安全 |
-| 并发处理 | 异步/回调 | Goroutine | Go 版本并发模型更简洁 |
-| 部署 | Node.js 运行时 | 单一可执行文件 | Go 版本部署更简单 |
-| 依赖管理 | pnpm | go mod | 两者都成熟稳定 |
-| 流式响应 | Express res.write() | http.Flusher | 两者都支持 SSE |
-| 日志系统 | winston | 自定义 Logger | 两者都功能完善 |
-| 错误处理 | try/catch | error 返回值 | Go 版本错误处理更显式 |
-
-### 13.9 代码结构
-
-```
-backend/
-├── types.go              # 类型定义
-├── openai_service.go     # OpenAI 服务封装
-├── agent.go              # Agent 核心逻辑
-├── xiaohongshu.go        # 小红书文案生成服务
-├── main.go               # HTTP 服务器
-├── constant.go           # 常量配置
-├── go.mod                # Go 模块配置
-├── go.sum                # 依赖锁定
-├── .ENV.example          # 环境变量示例
-├── README.md             # 使用说明
-├── test_api.ps1          # API 测试脚本
-└── agent-backend.exe     # 编译后的可执行文件
+  }'
 ```
 
-### 13.10 关键技术实现细节
+## 架构设计
 
-#### 13.10.1 流式响应实现
-- **技术**: Server-Sent Events (SSE)
-- **实现**:
-  - 使用 `http.Flusher` 接口逐块发送数据
-  - 设置 `Transfer-Encoding: chunked` 头
-  - 使用 `bufio.Scanner` 解析 SSE 数据流
+### 系统架构图
 
-#### 13.10.2 线程安全实现
-- **技术**: sync.RWMutex
-- **实现**:
-  - 读操作使用 `RLock()` / `RUnlock()`
-  - 写操作使用 `Lock()` / `Unlock()`
-  - 支持多个并发读取，互斥写入
+```
+┌─────────────────────────────────────────────────────────┐
+│                     HTTP Client                          │
+│                  (Frontend / API Client)                 │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│                   Gin HTTP Server                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
+│  │  CORS Middleware │  │ Rate Limit  │  │ Recovery     │   │
+│  └──────────────┘  └──────────────┘  └──────────────┘   │
+└────────────────────┬────────────────────────────────────┘
+                     │
+        ┌────────────┼────────────┐
+        │            │            │
+        ▼            ▼            ▼
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│ Chat Handler │ │ XHS Handler  │ │ Health Check │
+└──────┬───────┘ └──────┬───────┘ └──────────────┘
+       │                │
+       ▼                ▼
+┌──────────────┐ ┌──────────────┐
+│   Agent      │ │ XHS Service  │
+└──────┬───────┘ └──────┬───────┘
+       │                │
+       └────────┬───────┘
+                ▼
+       ┌────────────────┐
+       │ AI Provider    │
+       │ ┌────────────┐ │
+       │ │ Anthropic  │ │
+       │ └────────────┘ │
+       │ ┌────────────┐ │
+       │ │ DeepSeek   │ │
+       │ └────────────┘ │
+       └────────────────┘
+```
 
-#### 13.10.3 日志系统
-- **技术**: Logger 接口 + DefaultLogger 实现
-- **实现**:
-  - 支持自定义日志实现
-  - 结构化日志（map[string]interface{}）
-  - 请求日志脱敏处理
+### 核心组件
 
-### 13.11 性能优化
+#### 1. Server 模块 (`internal/server/`)
+- **职责**: HTTP 服务器配置、路由管理、中间件
+- **功能**:
+  - CORS 跨域支持
+  - IP 级别速率限制（100 请求/15 分钟）
+  - 错误恢复和日志记录
+  - 路由注册和管理
 
-- **并发处理**: 使用 Goroutine 处理并发请求
-- **内存管理**: 自动修剪历史记录，避免内存泄漏
-- **连接池**: HTTP 客户端复用连接
-- **流式处理**: 减少用户等待时间，提高响应速度
+#### 2. Agent 模块 (`internal/agent/`)
+- **职责**: 基础聊天对话功能
+- **功能**:
+  - 消息历史管理（最多 20 条）
+  - AI 提供商选择（Anthropic/DeepSeek）
+  - 流式响应处理
+  - 系统提示词管理
 
-### 13.12 安全性措施
+#### 3. AI 服务模块
+- **Anthropic** (`internal/anthropic/`): Claude API 封装
+- **OpenAI** (`internal/openai/`): DeepSeek API 封装
+- **功能**:
+  - 统一的聊天完成接口
+  - 流式和非流式响应支持
+  - 请求日志和错误处理
+  - API 密钥管理
 
-- **环境变量**: API 密钥通过环境变量管理
-- **日志脱敏**: 用户消息截断到 100 字符
-- **CORS 配置**: 支持跨域请求
-- **参数验证**: 请求参数严格验证
+#### 4. 小红书智能体 (`internal/xiaohongshu/`)
+- **职责**: 小红书文案生成
+- **功能**:
+  - 多场景文案生成
+  - 提示词模板管理
+  - 产品信息配置
+  - 风格化输出
 
-### 13.13 未来扩展建议
+### 数据流
 
-1. **配置文件**: 支持配置文件（YAML/TOML）
-2. **数据库集成**: 添加持久化存储支持
-3. **监控指标**: 集成 Prometheus 监控
-4. **分布式追踪**: 添加 OpenTelemetry 支持
-5. **缓存系统**: 添加 Redis 缓存
-6. **限流中间件**: 实现请求限流
+#### 聊天请求流程
 
-## 14. 总结
+```
+Client Request
+    ↓
+Gin Router
+    ↓
+Chat Handler
+    ↓
+Agent (Add Message)
+    ↓
+AI Provider Selection
+    ↓
+Anthropic/DeepSeek API
+    ↓
+Stream Response
+    ↓
+Client
+```
 
-本后端系统同时提供 TypeScript 和 Go 两种语言版本，具有以下特点：
+#### 文案生成流程
 
-**TypeScript 版本**:
-- 模块化设计，易于维护和扩展
-- 流式响应，提供实时的 AI 响应
-- 完整的错误处理，确保系统稳定性
-- 详细的日志记录，便于问题排查
-- 安全的配置管理，保护敏感信息
+```
+Client Request (Scene + Config)
+    ↓
+XHS Handler
+    ↓
+XHS Service (Build Prompt)
+    ↓
+Prompt Builder (Scene-based)
+    ↓
+AI Provider
+    ↓
+Formatted Copy
+    ↓
+Client
+```
 
-**Go 版本**:
-- 高性能，低资源消耗
-- 线程安全，支持并发处理
-- 类型安全，编译时检查
-- 单一可执行文件，部署简单
-- 与 TypeScript 版本 API 完全兼容
+## 开发指南
 
-两个版本都可以与前端应用集成使用，为用户提供智能的聊天交互体验。Go 版本特别适合生产环境部署，而 TypeScript 版本则更适合快速开发和原型验证。
+### 添加新的 AI 智能体
 
-此外，系统还集成了专门的小红书 Agent 功能，为小红书平台用户提供高质量的文案生成服务，支持 8 大核心内容场景，通过场景化的参数配置和 AI 智能生成，帮助用户快速创建符合小红书平台风格的优质内容。
+参考 `internal/xiaohongshu` 的实现，按以下步骤添加新的智能体：
+
+#### 1. 创建 Agent 目录
+
+```bash
+mkdir internal/youragent
+```
+
+#### 2. 创建文件结构
+
+```
+internal/youragent/
+├── types.go      # 请求/响应类型定义
+├── prompts.go    # 提示词模板（如需要）
+├── service.go    # 业务逻辑
+└── handler.go    # HTTP 处理器
+```
+
+#### 3. 实现 Service
+
+```go
+// internal/youragent/service.go
+package youragent
+
+import (
+    anthropicpkg "agent-backend/internal/anthropic"
+    "agent-backend/internal/openai"
+)
+
+type Service struct {
+    openaiSvc    *openai.Service
+    anthropicSvc *anthropicpkg.Service
+    aiType       string
+    logger       openai.Logger
+}
+
+func NewService(openaiSvc *openai.Service, anthropicSvc *anthropicpkg.Service, logger openai.Logger) *Service {
+    // 初始化逻辑
+    return &Service{...}
+}
+
+func (s *Service) DoSomething(req Request) (*Response, error) {
+    // 实现业务逻辑
+}
+```
+
+#### 4. 实现 Handler
+
+```go
+// internal/youragent/handler.go
+package youragent
+
+import "github.com/gin-gonic/gin"
+
+type Handler struct {
+    service *Service
+}
+
+func NewHandler(service *Service) *Handler {
+    return &Handler{service: service}
+}
+
+func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
+    group := router.Group("/youragent")
+    {
+        group.POST("/action", h.DoSomething)
+    }
+}
+
+func (h *Handler) DoSomething(c *gin.Context) {
+    // 处理 HTTP 请求
+}
+```
+
+#### 5. 注册路由
+
+在 `internal/server/server.go` 中添加：
+
+```go
+import "agent-backend/internal/youragent"
+
+func (s *Server) registerRoutes() {
+    // ... 现有路由
+    
+    // 你的 Agent 路由
+    yourHandler := youragent.NewHandler(youragent.NewService(openaiSvc, anthropicSvc, nil))
+    yourHandler.RegisterRoutes(s.router.Group("/"))
+}
+```
+
+### 添加新的场景（小红书）
+
+在 `internal/xiaohongshu/prompts.go` 中添加新的场景提示词：
+
+```go
+func (pb *PromptBuilder) buildNewScenePrompt() string {
+    config := pb.config
+    
+    prompt := fmt.Sprintf(`
+请根据以下信息生成小红书风格的文案：
+
+场景：%s
+产品名称：%s
+品牌：%s
+价格：%s
+使用感受：%s
+效果：%s
+推荐人群：%s
+
+要求：
+1. 使用适当的表情符号
+2. 包含相关话题标签
+3. 语言活泼有感染力
+4. 字数控制在200-300字之间
+    `, 
+        pb.scene,
+        config.ProductName,
+        config.Brand,
+        config.Price,
+        config.UsageFeel,
+        config.Effect,
+        config.Recommendation,
+    )
+    
+    return prompt
+}
+```
+
+在 `internal/xiaohongshu/prompts.go` 的 `Build` 方法中添加场景分支：
+
+```go
+func (pb *PromptBuilder) Build(scene string) string {
+    switch scene {
+    case "beauty":
+        return pb.buildBeautyPrompt()
+    case "food":
+        return pb.buildFoodPrompt()
+    case "travel":
+        return pb.buildTravelPrompt()
+    case "newscene":
+        return pb.buildNewScenePrompt()
+    default:
+        return pb.buildDefaultPrompt()
+    }
+}
+```
+
+### 测试
+
+#### 运行测试
+
+```bash
+# 运行所有测试
+go test ./...
+
+# 运行特定包的测试
+go test ./internal/agent/
+
+# 运行测试并显示覆盖率
+go test -cover ./...
+```
+
+#### API 测试
+
+使用提供的测试脚本：
+
+```bash
+# PowerShell
+.\test_api.ps1
+
+# 或使用 curl
+curl http://localhost:8018/health
+```
+
+## 部署指南
+
+### 开发环境部署
+
+1. **配置环境变量**
+```bash
+cp .ENV.example .ENV
+# 编辑 .ENV 文件
+```
+
+2. **启动服务**
+```bash
+go run ./cmd/server/
+```
+
+### 生产环境部署
+
+#### 1. 编译可执行文件
+
+```bash
+# Windows
+go build -o agent-backend.exe ./cmd/server/
+
+# Linux
+GOOS=linux GOARCH=amd64 go build -o agent-backend ./cmd/server/
+
+# macOS
+GOOS=darwin GOARCH=amd64 go build -o agent-backend ./cmd/server/
+```
+
+#### 2. 配置生产环境变量
+
+```env
+AI_TYPE=ANTHROPIC
+ANTHROPIC_API_KEY=your-production-api-key
+PORT=8018
+```
+
+#### 3. 使用进程管理器（推荐）
+
+**使用 systemd (Linux)**
+
+创建服务文件 `/etc/systemd/system/agent-hall.service`:
+
+```ini
+[Unit]
+Description=Agent Hall Backend Service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/agent-hall/backend
+ExecStart=/opt/agent-hall/backend/agent-backend
+Restart=always
+RestartSec=10
+Environment=AI_TYPE=ANTHROPIC
+Environment=ANTHROPIC_API_KEY=your-api-key
+Environment=PORT=8018
+
+[Install]
+WantedBy=multi-user.target
+```
+
+启动服务：
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start agent-hall
+sudo systemctl enable agent-hall
+```
+
+**使用 PM2 (跨平台)**
+
+```bash
+npm install -g pm2
+pm2 start agent-backend --name agent-hall-backend
+pm2 save
+pm2 startup
+```
+
+#### 4. 使用 Nginx 反向代理
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://localhost:8018;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+#### 5. Docker 部署
+
+创建 `Dockerfile`:
+
+```dockerfile
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN go build -o agent-backend ./cmd/server/
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+
+COPY --from=builder /app/agent-backend .
+COPY .ENV .
+
+EXPOSE 8018
+CMD ["./agent-backend"]
+```
+
+构建和运行：
+```bash
+docker build -t agent-hall-backend .
+docker run -p 8018:8018 --env-file .ENV agent-hall-backend
+```
+
+### 监控和日志
+
+#### 日志管理
+
+服务使用标准输出进行日志记录，建议：
+
+```bash
+# 保存日志到文件
+./agent-backend >> /var/log/agent-hall/backend.log 2>&1
+
+# 使用 logrotate 管理日志文件
+```
+
+#### 健康检查
+
+定期调用健康检查接口：
+
+```bash
+# 每 30 秒检查一次
+watch -n 30 'curl -f http://localhost:8018/health || echo "Service down!"'
+```
+
+## 故障排除
+
+### 常见问题
+
+#### 1. 端口被占用
+
+**错误**: `bind: Only one usage of each socket address`
+
+**解决**:
+```bash
+# Windows
+netstat -ano | findstr :8018
+taskkill /PID <PID> /F
+
+# Linux/macOS
+lsof -i :8018
+kill -9 <PID>
+```
+
+#### 2. API 密钥无效
+
+**错误**: `API 请求失败，状态码 401`
+
+**解决**: 检查 `.ENV` 文件中的 API 密钥是否正确
+
+#### 3. 依赖安装失败
+
+**错误**: `go: module xxx: not found`
+
+**解决**:
+```bash
+go mod tidy
+go mod download
+```
+
+#### 4. CORS 错误
+
+**错误**: 前端无法访问后端 API
+
+**解决**: 检查 `server.go` 中的 CORS 中间件配置
+
+## 性能优化
+
+### 1. 连接池配置
+
+```go
+client := &http.Client{
+    Transport: &http.Transport{
+        MaxIdleConns:        100,
+        MaxIdleConnsPerHost: 10,
+        IdleConnTimeout:     90 * time.Second,
+    },
+}
+```
+
+### 2. 速率限制调整
+
+在 `server.go` 中调整速率限制参数：
+
+```go
+r.Use(rateLimitMiddleware(200, 10*time.Minute)) // 200 请求/10 分钟
+```
+
+### 3. 缓存策略
+
+对于频繁请求的场景，考虑添加缓存层：
+
+```go
+type CacheService struct {
+    cache map[string]CacheEntry
+    mu    sync.RWMutex
+}
+
+func (c *CacheService) Get(key string) (interface{}, bool) {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+    entry, ok := c.cache[key]
+    if !ok {
+        return nil, false
+    }
+    if time.Since(entry.Timestamp) > 5*time.Minute {
+        return nil, false
+    }
+    return entry.Value, true
+}
+```
+
+## 安全建议
+
+1. **API 密钥管理**: 永远不要将 API 密钥提交到版本控制系统
+2. **环境变量**: 使用环境变量存储敏感信息
+3. **HTTPS**: 生产环境务必使用 HTTPS
+4. **速率限制**: 保持适当的速率限制防止滥用
+5. **输入验证**: 严格验证所有用户输入
+6. **日志脱敏**: 确保日志中不包含敏感信息
+
+## 贡献指南
+
+欢迎贡献代码！请遵循以下步骤：
+
+1. Fork 项目
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启 Pull Request
+
+## 许可证
+
+MIT License - 详见 LICENSE 文件
+
+## 联系方式
+
+- 项目主页: [GitHub Repository]
+- 问题反馈: [GitHub Issues]
+- 文档: [项目 Wiki]
+
+## 更新日志
+
+### v1.0.0 (2026-03-09)
+- 初始版本发布
+- 支持 Anthropic Claude 和 DeepSeek AI
+- 基础聊天功能
+- 小红书文案生成智能体
+- 流式响应支持
+- 速率限制和 CORS 支持
