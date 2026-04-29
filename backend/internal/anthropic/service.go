@@ -1,15 +1,14 @@
 package anthropic
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"agent-backend/pkg/logger"
 	"agent-backend/pkg/utils"
@@ -18,19 +17,14 @@ import (
 const (
 	defaultBaseURL   = "https://api.aicodemirror.com/api/claudecode"
 	defaultModel     = "claude-sonnet-4-6"
-	anthropicVersion = "2023-06-01"
 	defaultMaxTokens = 2048
 )
 
-// Service Anthropic API 服务封装
 type Service struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
-	Logger  logger.Logger
+	client *anthropic.Client
+	Logger logger.Logger
 }
 
-// NewService 创建新的 Anthropic 服务实例
 func NewService(apiKey, baseURL string, lg logger.Logger) *Service {
 	if lg == nil {
 		lg = logger.NewDefaultLogger("[Anthropic]")
@@ -47,15 +41,17 @@ func NewService(apiKey, baseURL string, lg logger.Logger) *Service {
 		})
 	}
 
+	client := anthropic.NewClient(
+		option.WithAPIKey(apiKey),
+		option.WithBaseURL(baseURL),
+	)
+
 	return &Service{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		client:  &http.Client{},
-		Logger:  lg,
+		client: &client,
+		Logger: lg,
 	}
 }
 
-// NewDefaultService 从环境变量创建默认 Anthropic 服务实例
 func NewDefaultService() *Service {
 	apiKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
 	baseURL := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
@@ -65,129 +61,77 @@ func NewDefaultService() *Service {
 	return NewService(apiKey, baseURL, nil)
 }
 
-// CreateChatCompletion 创建聊天完成（非流式）
 func (s *Service) CreateChatCompletion(req ChatRequest) (*ChatResponse, error) {
 	startTime := time.Now()
 	s.logRequest("创建 Anthropic 聊天完成", req)
 
-	if req.Model == "" {
-		req.Model = defaultModel
+	model := req.Model
+	if model == "" {
+		model = defaultModel
 	}
-	if req.MaxTokens == 0 {
-		req.MaxTokens = defaultMaxTokens
+	maxTokens := req.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = defaultMaxTokens
 	}
-	req.Stream = false
 
-	reqBody, err := json.Marshal(req)
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(model),
+		MaxTokens: int64(maxTokens),
+		Messages:  buildMessages(req.Messages),
+	}
+	if req.System != "" {
+		params.System = []anthropic.TextBlockParam{
+			{Text: req.System},
+		}
+	}
+
+	message, err := s.client.Messages.New(context.Background(), params)
 	if err != nil {
-		return nil, fmt.Errorf("序列化请求失败: %w", err)
-	}
-
-	httpReq, err := http.NewRequest("POST", s.baseURL+"/v1/messages", bytes.NewBuffer(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
-	}
-
-	s.setHeaders(httpReq)
-
-	resp, err := s.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("发送请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		s.Logger.Error("Anthropic API 请求失败", map[string]interface{}{
-			"status": resp.StatusCode,
-			"body":   string(body),
-		})
-		return nil, fmt.Errorf("API 请求失败，状态码 %d: %s", resp.StatusCode, string(body))
-	}
-
-	var response ChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %w", err)
+		s.Logger.Error("Anthropic API 请求失败", map[string]interface{}{"error": err.Error()})
+		return nil, fmt.Errorf("API 请求失败: %w", err)
 	}
 
 	duration := time.Since(startTime)
+	resp := convertResponse(message)
 	s.Logger.Info("Anthropic 聊天完成成功", map[string]interface{}{
-		"id":       response.ID,
-		"model":    response.Model,
+		"id":       resp.ID,
+		"model":    resp.Model,
 		"duration": duration.Milliseconds(),
 	})
-
-	return &response, nil
+	return resp, nil
 }
 
-// CreateChatCompletionStream 创建流式聊天完成
-// Anthropic SSE 格式: event: content_block_delta / data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
 func (s *Service) CreateChatCompletionStream(req ChatRequest, onChunk func(string)) (string, error) {
 	startTime := time.Now()
 	s.logRequest("创建 Anthropic 流式聊天完成", req)
 
-	if req.Model == "" {
-		req.Model = defaultModel
+	model := req.Model
+	if model == "" {
+		model = defaultModel
 	}
-	if req.MaxTokens == 0 {
-		req.MaxTokens = defaultMaxTokens
-	}
-	req.Stream = true
-
-	reqBody, err := json.Marshal(req)
-	if err != nil {
-		return "", fmt.Errorf("序列化请求失败: %w", err)
+	maxTokens := req.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = defaultMaxTokens
 	}
 
-	httpReq, err := http.NewRequest("POST", s.baseURL+"/v1/messages", bytes.NewBuffer(reqBody))
-	if err != nil {
-		return "", fmt.Errorf("创建请求失败: %w", err)
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(model),
+		MaxTokens: int64(maxTokens),
+		Messages:  buildMessages(req.Messages),
+	}
+	if req.System != "" {
+		params.System = []anthropic.TextBlockParam{
+			{Text: req.System},
+		}
 	}
 
-	s.setHeaders(httpReq)
-
-	resp, err := s.client.Do(httpReq)
-	if err != nil {
-		s.Logger.Error("发送请求失败", map[string]interface{}{"error": err.Error()})
-		return "", fmt.Errorf("发送请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		s.Logger.Error("Anthropic API 请求失败", map[string]interface{}{
-			"status": resp.StatusCode,
-			"body":   string(body),
-		})
-		return "", fmt.Errorf("API 请求失败，状态码 %d: %s", resp.StatusCode, string(body))
-	}
+	stream := s.client.Messages.NewStreaming(context.Background(), params)
+	defer stream.Close()
 
 	var fullResponse strings.Builder
-	scanner := bufio.NewScanner(resp.Body)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		// Anthropic SSE 格式: "data: {...}"
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-
-		data := line[6:]
-		if data == "[DONE]" {
-			break
-		}
-
-		var event StreamEvent
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			continue
-		}
-
-		// 只处理 content_block_delta 事件中的 text_delta
-		if event.Type == "content_block_delta" && event.Delta != nil && event.Delta.Type == "text_delta" {
+	for stream.Next() {
+		event := stream.Current()
+		if event.Type == "content_block_delta" && event.Delta.Type == "text_delta" {
 			text := event.Delta.Text
 			if text != "" {
 				fullResponse.WriteString(text)
@@ -195,10 +139,9 @@ func (s *Service) CreateChatCompletionStream(req ChatRequest, onChunk func(strin
 			}
 		}
 	}
-
-	if err := scanner.Err(); err != nil {
-		s.Logger.Error("读取响应失败", map[string]interface{}{"error": err.Error()})
-		return "", fmt.Errorf("读取响应失败: %w", err)
+	if err := stream.Err(); err != nil {
+		s.Logger.Error("流式响应失败", map[string]interface{}{"error": err.Error()})
+		return "", fmt.Errorf("流式请求失败: %w", err)
 	}
 
 	duration := time.Since(startTime)
@@ -206,18 +149,42 @@ func (s *Service) CreateChatCompletionStream(req ChatRequest, onChunk func(strin
 		"contentLength": fullResponse.Len(),
 		"duration":      duration.Milliseconds(),
 	})
-
 	return fullResponse.String(), nil
 }
 
-// setHeaders 设置 Anthropic API 所需的请求头
-func (s *Service) setHeaders(req *http.Request) {
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", s.apiKey)
-	req.Header.Set("anthropic-version", anthropicVersion)
+func buildMessages(msgs []Message) []anthropic.MessageParam {
+	var params []anthropic.MessageParam
+	for _, msg := range msgs {
+		switch msg.Role {
+		case "user":
+			params = append(params, anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)))
+		case "assistant":
+			params = append(params, anthropic.NewAssistantMessage(anthropic.NewTextBlock(msg.Content)))
+		}
+	}
+	return params
 }
 
-// logRequest 记录请求日志（脱敏处理）
+func convertResponse(msg *anthropic.Message) *ChatResponse {
+	var blocks []ContentBlock
+	for _, c := range msg.Content {
+		if c.Type == "text" {
+			blocks = append(blocks, ContentBlock{Type: "text", Text: c.Text})
+		}
+	}
+	return &ChatResponse{
+		ID:      msg.ID,
+		Type:    string(msg.Type),
+		Role:    string(msg.Role),
+		Content: blocks,
+		Model:   string(msg.Model),
+		Usage: Usage{
+			InputTokens:  int(msg.Usage.InputTokens),
+			OutputTokens: int(msg.Usage.OutputTokens),
+		},
+	}
+}
+
 func (s *Service) logRequest(action string, req ChatRequest) {
 	messages := make([]map[string]interface{}, len(req.Messages))
 	for i, msg := range req.Messages {
@@ -230,11 +197,9 @@ func (s *Service) logRequest(action string, req ChatRequest) {
 			"content": content,
 		}
 	}
-
 	s.Logger.Info(action, map[string]interface{}{
 		"model":     req.Model,
 		"maxTokens": req.MaxTokens,
-		"stream":    req.Stream,
 		"messages":  messages,
 	})
 }

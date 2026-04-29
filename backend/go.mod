@@ -3,12 +3,12 @@ module agent-backend
 go 1.24.4
 
 require (
+	github.com/anthropics/anthropic-sdk-go v1.17.0
 	github.com/gin-gonic/gin v1.11.0
 	github.com/joho/godotenv v1.5.1
 )
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.17.0 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
