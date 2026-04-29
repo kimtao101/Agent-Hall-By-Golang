@@ -6,86 +6,43 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"agent-backend/pkg/logger"
 	"agent-backend/pkg/utils"
 )
 
 const (
-	defaultBaseURL       = "https://api.aicodemirror.com/api/claudecode"
-	defaultModel         = "claude-sonnet-4-6"
-	anthropicVersion     = "2023-06-01"
-	defaultMaxTokens     = 2048
+	defaultBaseURL   = "https://api.aicodemirror.com/api/claudecode"
+	defaultModel     = "claude-sonnet-4-6"
+	anthropicVersion = "2023-06-01"
+	defaultMaxTokens = 2048
 )
-
-// Logger 日志接口（复用 openai 包的接口定义）
-type Logger interface {
-	Info(msg string, fields ...map[string]interface{})
-	Error(msg string, fields ...map[string]interface{})
-	Warn(msg string, fields ...map[string]interface{})
-}
-
-// DefaultLogger 默认日志实现
-type DefaultLogger struct {
-	logger *log.Logger
-}
-
-// NewDefaultLogger 创建默认日志实例
-func NewDefaultLogger() *DefaultLogger {
-	return &DefaultLogger{
-		logger: log.New(os.Stdout, "[Anthropic] ", log.LstdFlags),
-	}
-}
-
-func (l *DefaultLogger) Info(msg string, fields ...map[string]interface{}) {
-	if len(fields) > 0 {
-		l.logger.Printf("%s %+v", msg, fields[0])
-	} else {
-		l.logger.Println(msg)
-	}
-}
-
-func (l *DefaultLogger) Error(msg string, fields ...map[string]interface{}) {
-	if len(fields) > 0 {
-		l.logger.Printf("ERROR: %s %+v", msg, fields[0])
-	} else {
-		l.logger.Printf("ERROR: %s", msg)
-	}
-}
-
-func (l *DefaultLogger) Warn(msg string, fields ...map[string]interface{}) {
-	if len(fields) > 0 {
-		l.logger.Printf("WARN: %s %+v", msg, fields[0])
-	} else {
-		l.logger.Printf("WARN: %s", msg)
-	}
-}
 
 // Service Anthropic API 服务封装
 type Service struct {
 	apiKey  string
 	baseURL string
 	client  *http.Client
-	Logger  Logger
+	Logger  logger.Logger
 }
 
 // NewService 创建新的 Anthropic 服务实例
-func NewService(apiKey, baseURL string, logger Logger) *Service {
-	if logger == nil {
-		logger = NewDefaultLogger()
+func NewService(apiKey, baseURL string, lg logger.Logger) *Service {
+	if lg == nil {
+		lg = logger.NewDefaultLogger("[Anthropic]")
 	}
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
 
 	if apiKey == "" {
-		logger.Warn("Anthropic API Key 未设置")
+		lg.Warn("Anthropic API Key 未设置")
 	} else {
-		logger.Info("Anthropic 服务初始化成功", map[string]interface{}{
+		lg.Info("Anthropic 服务初始化成功", map[string]interface{}{
 			"baseURL": baseURL,
 		})
 	}
@@ -94,7 +51,7 @@ func NewService(apiKey, baseURL string, logger Logger) *Service {
 		apiKey:  apiKey,
 		baseURL: baseURL,
 		client:  &http.Client{},
-		Logger:  logger,
+		Logger:  lg,
 	}
 }
 

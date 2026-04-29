@@ -1,12 +1,11 @@
 package agent
 
 import (
-	"os"
-	"strings"
 	"sync"
 
 	anthropicpkg "agent-backend/internal/anthropic"
 	"agent-backend/internal/openai"
+	"agent-backend/pkg/logger"
 )
 
 const (
@@ -23,19 +22,17 @@ type Agent struct {
 	openaiSvc    *openai.Service
 	anthropicSvc *anthropicpkg.Service
 	aiType       string
-	logger       openai.Logger
+	logger       logger.Logger
 }
 
 // New 创建新的 Agent 实例
-func New(openaiSvc *openai.Service, anthropicSvc *anthropicpkg.Service) *Agent {
+func New(openaiSvc *openai.Service, anthropicSvc *anthropicpkg.Service, aiType string) *Agent {
 	if openaiSvc == nil {
 		openaiSvc = openai.NewDefaultService()
 	}
 	if anthropicSvc == nil {
 		anthropicSvc = anthropicpkg.NewDefaultService()
 	}
-
-	aiType := strings.ToUpper(strings.TrimSpace(os.Getenv("AI_TYPE")))
 	if aiType != aiTypeAnthropic && aiType != aiTypeDeepSeek {
 		aiType = aiTypeDeepSeek
 	}
@@ -45,7 +42,7 @@ func New(openaiSvc *openai.Service, anthropicSvc *anthropicpkg.Service) *Agent {
 		openaiSvc:    openaiSvc,
 		anthropicSvc: anthropicSvc,
 		aiType:       aiType,
-		logger:       openaiSvc.Logger,
+		logger:       logger.NewDefaultLogger("[Agent]"),
 	}
 	a.initializeSystemPrompt()
 	return a

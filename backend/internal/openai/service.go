@@ -6,85 +6,39 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"agent-backend/pkg/logger"
 	"agent-backend/pkg/utils"
 )
-
-// Logger 日志接口
-type Logger interface {
-	Info(msg string, fields ...map[string]interface{})
-	Error(msg string, fields ...map[string]interface{})
-	Warn(msg string, fields ...map[string]interface{})
-}
-
-// DefaultLogger 默认日志实现
-type DefaultLogger struct {
-	logger *log.Logger
-}
-
-// NewDefaultLogger 创建默认日志实例
-func NewDefaultLogger() *DefaultLogger {
-	return &DefaultLogger{
-		logger: log.New(os.Stdout, "[OpenAI] ", log.LstdFlags),
-	}
-}
-
-// Info 记录信息日志
-func (l *DefaultLogger) Info(msg string, fields ...map[string]interface{}) {
-	if len(fields) > 0 {
-		l.logger.Printf("%s %+v", msg, fields[0])
-	} else {
-		l.logger.Println(msg)
-	}
-}
-
-// Error 记录错误日志
-func (l *DefaultLogger) Error(msg string, fields ...map[string]interface{}) {
-	if len(fields) > 0 {
-		l.logger.Printf("ERROR: %s %+v", msg, fields[0])
-	} else {
-		l.logger.Printf("ERROR: %s", msg)
-	}
-}
-
-// Warn 记录警告日志
-func (l *DefaultLogger) Warn(msg string, fields ...map[string]interface{}) {
-	if len(fields) > 0 {
-		l.logger.Printf("WARN: %s %+v", msg, fields[0])
-	} else {
-		l.logger.Printf("WARN: %s", msg)
-	}
-}
 
 // Service OpenAI 服务封装
 type Service struct {
 	apiKey  string
 	baseURL string
 	client  *http.Client
-	Logger  Logger
+	Logger  logger.Logger
 }
 
 // NewService 创建新的 OpenAI 服务实例
 // apiKey: OpenAI API 密钥
 // baseURL: API 基础地址
 // logger: 日志记录器，如果为 nil 则使用默认日志
-func NewService(apiKey, baseURL string, logger Logger) *Service {
-	if logger == nil {
-		logger = NewDefaultLogger()
+func NewService(apiKey, baseURL string, lg logger.Logger) *Service {
+	if lg == nil {
+		lg = logger.NewDefaultLogger("[OpenAI]")
 	}
 	if baseURL == "" {
 		baseURL = "https://api.deepseek.com"
 	}
 
 	if apiKey == "" {
-		logger.Warn("API Key 未设置")
+		lg.Warn("API Key 未设置")
 	} else {
-		logger.Info("OpenAI 服务初始化成功", map[string]interface{}{
+		lg.Info("OpenAI 服务初始化成功", map[string]interface{}{
 			"baseURL":          baseURL,
 			"apiKeyConfigured": apiKey != "",
 		})
@@ -94,7 +48,7 @@ func NewService(apiKey, baseURL string, logger Logger) *Service {
 		apiKey:  apiKey,
 		baseURL: baseURL,
 		client:  &http.Client{},
-		Logger:  logger,
+		Logger:  lg,
 	}
 }
 

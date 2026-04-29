@@ -1,11 +1,9 @@
 package xiaohongshu
 
 import (
-	"os"
-	"strings"
-
 	anthropicpkg "agent-backend/internal/anthropic"
 	"agent-backend/internal/openai"
+	"agent-backend/pkg/logger"
 	"agent-backend/pkg/utils"
 )
 
@@ -14,22 +12,17 @@ type Service struct {
 	openaiSvc    *openai.Service
 	anthropicSvc *anthropicpkg.Service
 	aiType       string
-	logger       openai.Logger
+	logger       logger.Logger
 }
 
 // NewService 创建新的小红书文案生成服务
-func NewService(openaiSvc *openai.Service, anthropicSvc *anthropicpkg.Service, logger openai.Logger) *Service {
+func NewService(openaiSvc *openai.Service, anthropicSvc *anthropicpkg.Service, aiType string) *Service {
 	if openaiSvc == nil {
 		openaiSvc = openai.NewDefaultService()
 	}
 	if anthropicSvc == nil {
 		anthropicSvc = anthropicpkg.NewDefaultService()
 	}
-	if logger == nil {
-		logger = openai.NewDefaultLogger()
-	}
-
-	aiType := strings.ToUpper(strings.TrimSpace(os.Getenv("AI_TYPE")))
 	if aiType != "ANTHROPIC" && aiType != "DEEPSEEK" {
 		aiType = "DEEPSEEK"
 	}
@@ -38,7 +31,7 @@ func NewService(openaiSvc *openai.Service, anthropicSvc *anthropicpkg.Service, l
 		openaiSvc:    openaiSvc,
 		anthropicSvc: anthropicSvc,
 		aiType:       aiType,
-		logger:       logger,
+		logger:       logger.NewDefaultLogger("[Xiaohongshu]"),
 	}
 }
 
