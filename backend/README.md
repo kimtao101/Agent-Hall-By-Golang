@@ -33,17 +33,19 @@ backend/
 ├── cmd/
 │   └── server/              # 应用程序入口
 │       └── main.go          # 主入口文件
+├── constant/                # 全局常量定义
+│   └── constant.go          # AI_TYPE、模型名、BaseURL 等常量
 ├── internal/                # 内部包（不可被外部导入）
 │   ├── agent/               # 聊天 Agent 核心逻辑
 │   │   ├── agent.go         # 会话历史、模型选择、流式响应
 │   │   └── types.go         # Message / History 类型定义
-│   ├── anthropic/           # Anthropic/Claude 协议适配层
-│   │   ├── service.go       # Anthropic API 封装
+│   ├── anthropic/           # Anthropic Claude 适配层（官方 SDK）
+│   │   ├── service.go       # 基于 anthropic-sdk-go 的流式/非流式调用
 │   │   └── types.go         # Anthropic 请求/响应结构
 │   ├── chat/                # 聊天 HTTP 接口
 │   │   └── handler.go       # /chat /history /clear /health
-│   ├── openai/              # OpenAI 兼容协议适配层（默认用于 DeepSeek）
-│   │   ├── service.go       # DeepSeek/OpenAI 兼容 API 封装
+│   ├── openai/              # DeepSeek 适配层（OpenAI 兼容协议）
+│   │   ├── service.go       # DeepSeek API 封装（/v1/chat/completions）
 │   │   └── types.go         # OpenAI 兼容请求/响应结构
 │   ├── server/              # HTTP 服务器装配层
 │   │   ├── middleware.go    # CORS、限流中间件
@@ -71,9 +73,9 @@ backend/
 
 - **语言**: Go 1.24+
 - **Web 框架**: Gin v1.11.0
-- **AI 服务**: 
-  - Anthropic Claude API (claude-sonnet-4-6)
-  - DeepSeek API (deepseek-chat)
+- **AI SDK**:
+  - Anthropic Claude API via `anthropic-sdk-go` (claude-opus-4-7-20250415)
+  - DeepSeek API via OpenAI 兼容协议 (deepseek-v4-flash)
 - **项目布局**: 标准 Go 项目布局
 - **配置管理**: godotenv
 - **HTTP 客户端**: 标准库 net/http
@@ -126,6 +128,7 @@ curl http://localhost:8016/health
 ```
 
 预期响应：
+
 ```json
 {
   "status": "ok",
@@ -137,14 +140,14 @@ curl http://localhost:8016/health
 
 ### 环境变量说明
 
-| 变量名 | 必填 | 默认值 | 描述 |
-|--------|------|--------|------|
-| `AI_TYPE` | 否 | `DEEPSEEK` | AI 服务类型：`ANTHROPIC` 或 `DEEPSEEK` |
-| `ANTHROPIC_API_KEY` | 条件必填 | - | Anthropic API 密钥（当 AI_TYPE=ANTHROPIC 时必填） |
-| `ANTHROPIC_BASE_URL` | 否 | `https://api.aicodemirror.com/api/claudecode` | Anthropic API 基础地址 |
-| `DEEPSEEK_API_KEY` | 条件必填 | - | DeepSeek API 密钥（当 AI_TYPE=DEEPSEEK 时必填） |
-| `DEEPSEEK_BASE_URL` | 否 | `https://api.deepseek.com` | DeepSeek API 基础地址 |
-| `PORT` | 否 | `8016` | 服务监听端口 |
+| 变量名               | 必填     | 默认值                                        | 描述                                              |
+| -------------------- | -------- | --------------------------------------------- | ------------------------------------------------- |
+| `AI_TYPE`            | 否       | `DEEPSEEK`                                    | AI 服务类型：`ANTHROPIC` 或 `DEEPSEEK`            |
+| `ANTHROPIC_API_KEY`  | 条件必填 | -                                             | Anthropic API 密钥（当 AI_TYPE=ANTHROPIC 时必填） |
+| `ANTHROPIC_BASE_URL` | 否       | `https://api.aicodemirror.com/api/claudecode` | Anthropic API 基础地址                            |
+| `DEEPSEEK_API_KEY`   | 条件必填 | -                                             | DeepSeek API 密钥（当 AI_TYPE=DEEPSEEK 时必填）   |
+| `DEEPSEEK_BASE_URL`  | 否       | `https://api.deepseek.com`                    | DeepSeek API 基础地址                             |
+| `PORT`               | 否       | `8016`                                        | 服务监听端口                                      |
 
 ### 配置示例
 
@@ -153,7 +156,7 @@ curl http://localhost:8016/health
 ```env
 AI_TYPE=ANTHROPIC
 ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxx
-ANTHROPIC_BASE_URL=https://api.anthropic.com
+ANTHROPIC_BASE_URL=https://api.aicodemirror.com/api/claudecode
 PORT=8016
 ```
 
@@ -166,13 +169,7 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 PORT=8016
 ```
 
-#### 兼容模式（优先使用 DeepSeek，回退到 Anthropic）
-
-```env
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
-ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxx
-PORT=8016
-```
+> 注意：`AI_TYPE` 决定运行时使用哪个服务，不存在自动回退机制。两个服务都会初始化，但只有 `AI_TYPE` 指定的那个会被实际调用。
 
 ## API 接口文档
 
@@ -185,6 +182,7 @@ PORT=8016
 **描述**: 检查服务运行状态
 
 **响应示例**:
+
 ```json
 {
   "status": "ok",
@@ -199,6 +197,7 @@ PORT=8016
 **描述**: 发送消息并获取流式响应
 
 **请求体**:
+
 ```json
 {
   "message": "你好，请介绍一下你自己"
@@ -208,6 +207,7 @@ PORT=8016
 **响应格式**: `text/plain` 流式响应
 
 **请求示例**:
+
 ```bash
 curl -X POST http://localhost:8016/chat \
   -H "Content-Type: application/json" \
@@ -221,6 +221,7 @@ curl -X POST http://localhost:8016/chat \
 **描述**: 获取当前会话的聊天历史记录
 
 **响应示例**:
+
 ```json
 [
   {
@@ -245,6 +246,7 @@ curl -X POST http://localhost:8016/chat \
 **描述**: 清除当前会话的聊天历史记录
 
 **响应示例**:
+
 ```json
 {
   "success": true
@@ -260,6 +262,7 @@ curl -X POST http://localhost:8016/chat \
 **描述**: 获取小红书文案生成的所有可用场景
 
 **响应示例**:
+
 ```json
 [
   {
@@ -287,6 +290,7 @@ curl -X POST http://localhost:8016/chat \
 **描述**: 根据配置生成小红书风格文案
 
 **请求体**:
+
 ```json
 {
   "scene": "beauty",
@@ -302,6 +306,7 @@ curl -X POST http://localhost:8016/chat \
 ```
 
 **响应示例**:
+
 ```json
 {
   "copy": "✨熬夜党的救星来啦！🌟\n\n今天要给大家安利这款雅诗兰黛小棕瓶精华～💕\n\n💰价格：999元\n\n🌟使用感受：\n吸收超级快！完全不油腻，用完皮肤水润润的～\n\n✨效果：\n肤色提亮真的太明显了！坚持用下来，素颜都自信满满！\n\n👉特别推荐给经常熬夜的姐妹们，真的绝绝子！\n\n#雅诗兰黛 #小棕瓶 #护肤 #熬夜肌 #美妆分享"
@@ -309,6 +314,7 @@ curl -X POST http://localhost:8016/chat \
 ```
 
 **请求示例**:
+
 ```bash
 curl -X POST http://localhost:8016/xiaohongshu/copy \
   -H "Content-Type: application/json" \
@@ -371,6 +377,7 @@ curl -X POST http://localhost:8016/xiaohongshu/copy \
 ### 核心组件
 
 #### 1. Server 模块 (`internal/server/`)
+
 - **职责**: HTTP 服务器装配、路由管理、中间件注册
 - **功能**:
   - 初始化 Gin 引擎
@@ -378,6 +385,7 @@ curl -X POST http://localhost:8016/xiaohongshu/copy \
   - 读取 `AI_TYPE` 并装配 `agent` 与 `xiaohongshu` 业务模块
 
 #### 2. Chat 模块 (`internal/chat/`)
+
 - **职责**: 对外暴露聊天相关 HTTP 接口
 - **功能**:
   - `GET /health`
@@ -386,6 +394,7 @@ curl -X POST http://localhost:8016/xiaohongshu/copy \
   - `POST /clear`
 
 #### 3. Agent 模块 (`internal/agent/`)
+
 - **职责**: 基础聊天对话能力编排
 - **功能**:
   - 消息历史管理（最多保留 20 条）
@@ -394,15 +403,16 @@ curl -X POST http://localhost:8016/xiaohongshu/copy \
   - 流式响应处理
 
 #### 4. AI 服务适配层
-- **Anthropic** (`internal/anthropic/`): Anthropic Messages API 封装
-- **OpenAI** (`internal/openai/`): OpenAI 兼容协议封装，当前默认用于 DeepSeek
+
+- **Anthropic** (`internal/anthropic/`): 基于官方 `anthropic-sdk-go` SDK，调用 Claude Messages API
+- **OpenAI/DeepSeek** (`internal/openai/`): 基于 HTTP 客户端，专用于 DeepSeek（OpenAI 兼容协议 `/v1/chat/completions`）
 - **功能**:
-  - 统一的请求封装
   - 流式与非流式调用
   - SSE 事件解析
   - 请求日志与错误处理
 
 #### 5. 小红书文案模块 (`internal/xiaohongshu/`)
+
 - **职责**: 按场景生成小红书文案
 - **功能**:
   - 多场景 Prompt 构建
@@ -541,6 +551,7 @@ internal/anthropic
 
 - `github.com/gin-gonic/gin`：HTTP 服务框架
 - `github.com/joho/godotenv`：加载 `.ENV` 配置
+- `github.com/anthropics/anthropic-sdk-go`：Anthropic 官方 Go SDK
 
 说明当前后端实现较轻量，尚未引入数据库、缓存、消息队列或鉴权框架。
 
@@ -561,7 +572,7 @@ internal/anthropic
 
 ### `_old` 目录说明
 
-[backend/_old/](backend/_old/) 中保留了旧版本实现，主要是早期单包结构代码与历史 TypeScript/Go 原型。
+[backend/\_old/](backend/_old/) 中保留了旧版本实现，主要是早期单包结构代码与历史 TypeScript/Go 原型。
 
 当前正式启动链路不再依赖该目录，实际运行以 `cmd/server` 和 `internal/*` 下的新结构为准。
 
@@ -759,12 +770,14 @@ curl http://localhost:8016/health
 ### 开发环境部署
 
 1. **配置环境变量**
+
 ```bash
 cp .ENV.example .ENV
 # 编辑 .ENV 文件
 ```
 
 2. **启动服务**
+
 ```bash
 go run ./cmd/server/
 ```
@@ -819,6 +832,7 @@ WantedBy=multi-user.target
 ```
 
 启动服务：
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl start agent-hall
@@ -880,6 +894,7 @@ CMD ["./agent-backend"]
 ```
 
 构建和运行：
+
 ```bash
 docker build -t agent-hall-backend .
 docker run -p 8016:8016 --env-file .ENV agent-hall-backend
@@ -916,6 +931,7 @@ watch -n 30 'curl -f http://localhost:8016/health || echo "Service down!"'
 **错误**: `bind: Only one usage of each socket address`
 
 **解决**:
+
 ```bash
 # Windows
 netstat -ano | findstr :8016
@@ -937,6 +953,7 @@ kill -9 <PID>
 **错误**: `go: module xxx: not found`
 
 **解决**:
+
 ```bash
 go mod tidy
 go mod download
@@ -1026,6 +1043,7 @@ MIT License - 详见 LICENSE 文件
 ## 更新日志
 
 ### v1.0.0 (2026-03-09)
+
 - 初始版本发布
 - 支持 Anthropic Claude 和 DeepSeek AI
 - 基础聊天功能

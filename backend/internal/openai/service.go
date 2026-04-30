@@ -1,6 +1,9 @@
 package openai
 
 import (
+	constantpkg "agent-backend/constant"
+	"agent-backend/pkg/logger"
+	"agent-backend/pkg/utils"
 	"bufio"
 	"bytes"
 	"encoding/json"
@@ -10,9 +13,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"agent-backend/pkg/logger"
-	"agent-backend/pkg/utils"
 )
 
 // Service OpenAI 服务封装
@@ -32,7 +32,7 @@ func NewService(apiKey, baseURL string, lg logger.Logger) *Service {
 		lg = logger.NewDefaultLogger("[OpenAI]")
 	}
 	if baseURL == "" {
-		baseURL = "https://api.deepseek.com"
+		baseURL = constantpkg.DSBaseURL
 	}
 
 	if apiKey == "" {
@@ -54,22 +54,11 @@ func NewService(apiKey, baseURL string, lg logger.Logger) *Service {
 
 // NewDefaultService 从环境变量创建默认服务实例
 func NewDefaultService() *Service {
-	// 优先使用 DeepSeek API
 	apiKey := os.Getenv("DEEPSEEK_API_KEY")
 	baseURL := os.Getenv("DEEPSEEK_BASE_URL")
 	if baseURL == "" {
-		baseURL = "https://api.deepseek.com"
+		baseURL = constantpkg.DSBaseURL
 	}
-
-	// 如果没有 DeepSeek API Key，使用 Claude API
-	if apiKey == "" {
-		apiKey = os.Getenv("CLAUDE_API_KEY")
-		baseURL = os.Getenv("CLAUDE_BASE_URL")
-		if baseURL == "" {
-			baseURL = "https://api.anthropic.com"
-		}
-	}
-
 	return NewService(apiKey, baseURL, nil)
 }
 
@@ -80,33 +69,18 @@ func (s *Service) CreateChatCompletion(req ChatCompletionRequest) (*ChatCompleti
 	startTime := time.Now()
 	s.logRequest("创建聊天完成", req)
 
-	// 根据 baseURL 判断是否为 Claude API
-	var endpoint string
-	if strings.Contains(s.baseURL, "anthropic.com") {
-		// Claude API 端点
-		endpoint = "/v1/messages"
-	} else {
-		// DeepSeek/OpenAI API 端点
-		endpoint = "/v1/chat/completions"
-	}
-
 	reqBody, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", s.baseURL+endpoint, bytes.NewBuffer(reqBody))
+	httpReq, err := http.NewRequest("POST", s.baseURL+"/v1/chat/completions", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+s.apiKey)
-
-	// Claude API 需要额外的 x-api-key 头部
-	if strings.Contains(s.baseURL, "anthropic.com") {
-		httpReq.Header.Set("x-api-key", s.apiKey)
-	}
 
 	resp, err := s.client.Do(httpReq)
 	if err != nil {
@@ -146,33 +120,18 @@ func (s *Service) CreateChatCompletionStream(req ChatCompletionRequest, onChunk 
 	startTime := time.Now()
 	s.logRequest("创建流式聊天完成", req)
 
-	// 根据 baseURL 判断是否为 Claude API
-	var endpoint string
-	if strings.Contains(s.baseURL, "anthropic.com") {
-		// Claude API 端点
-		endpoint = "/v1/messages"
-	} else {
-		// DeepSeek/OpenAI API 端点
-		endpoint = "/v1/chat/completions"
-	}
-
 	reqBody, err := json.Marshal(req)
 	if err != nil {
 		return "", fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", s.baseURL+endpoint, bytes.NewBuffer(reqBody))
+	httpReq, err := http.NewRequest("POST", s.baseURL+"/v1/chat/completions", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return "", fmt.Errorf("创建请求失败: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+s.apiKey)
-
-	// Claude API 需要额外的 x-api-key 头部
-	if strings.Contains(s.baseURL, "anthropic.com") {
-		httpReq.Header.Set("x-api-key", s.apiKey)
-	}
 
 	resp, err := s.client.Do(httpReq)
 	if err != nil {

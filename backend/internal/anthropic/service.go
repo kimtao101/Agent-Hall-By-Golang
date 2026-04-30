@@ -1,23 +1,18 @@
 package anthropic
 
 import (
+	"agent-backend/pkg/logger"
+	"agent-backend/pkg/utils"
 	"context"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
+	constantpkg "agent-backend/constant"
+
+	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-
-	"agent-backend/pkg/logger"
-	"agent-backend/pkg/utils"
-)
-
-const (
-	defaultBaseURL   = "https://api.aicodemirror.com/api/claudecode"
-	defaultModel     = "claude-sonnet-4-6"
-	defaultMaxTokens = 2048
 )
 
 type Service struct {
@@ -30,7 +25,7 @@ func NewService(apiKey, baseURL string, lg logger.Logger) *Service {
 		lg = logger.NewDefaultLogger("[Anthropic]")
 	}
 	if baseURL == "" {
-		baseURL = defaultBaseURL
+		baseURL = constantpkg.ANBaseURL
 	}
 
 	if apiKey == "" {
@@ -56,7 +51,7 @@ func NewDefaultService() *Service {
 	apiKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
 	baseURL := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
 	if baseURL == "" {
-		baseURL = defaultBaseURL
+		baseURL = constantpkg.ANBaseURL
 	}
 	return NewService(apiKey, baseURL, nil)
 }
@@ -67,11 +62,11 @@ func (s *Service) CreateChatCompletion(req ChatRequest) (*ChatResponse, error) {
 
 	model := req.Model
 	if model == "" {
-		model = defaultModel
+		model = constantpkg.ANModel
 	}
 	maxTokens := req.MaxTokens
 	if maxTokens == 0 {
-		maxTokens = defaultMaxTokens
+		maxTokens = constantpkg.DefaultMaxTokens
 	}
 
 	params := anthropic.MessageNewParams{
@@ -107,11 +102,11 @@ func (s *Service) CreateChatCompletionStream(req ChatRequest, onChunk func(strin
 
 	model := req.Model
 	if model == "" {
-		model = defaultModel
+		model = constantpkg.ANModel
 	}
 	maxTokens := req.MaxTokens
 	if maxTokens == 0 {
-		maxTokens = defaultMaxTokens
+		maxTokens = constantpkg.DefaultMaxTokens
 	}
 
 	params := anthropic.MessageNewParams{

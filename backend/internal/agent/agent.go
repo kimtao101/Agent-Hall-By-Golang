@@ -3,16 +3,10 @@ package agent
 import (
 	"sync"
 
+	constantpkg "agent-backend/constant"
 	anthropicpkg "agent-backend/internal/anthropic"
 	"agent-backend/internal/openai"
 	"agent-backend/pkg/logger"
-)
-
-const (
-	aiTypeAnthropic = "ANTHROPIC"
-	aiTypeDeepSeek  = "DEEPSEEK"
-	modelAnthropic  = "claude-sonnet-4-6"
-	modelDeepSeek   = "deepseek-chat"
 )
 
 // Agent 聊天代理结构体
@@ -33,8 +27,8 @@ func New(openaiSvc *openai.Service, anthropicSvc *anthropicpkg.Service, aiType s
 	if anthropicSvc == nil {
 		anthropicSvc = anthropicpkg.NewDefaultService()
 	}
-	if aiType != aiTypeAnthropic && aiType != aiTypeDeepSeek {
-		aiType = aiTypeDeepSeek
+	if aiType != constantpkg.AN && aiType != constantpkg.DS {
+		aiType = constantpkg.DS
 	}
 
 	a := &Agent{
@@ -87,10 +81,10 @@ func (a *Agent) GenerateResponse(userInput string, onChunk func(string)) error {
 		err          error
 	)
 
-	if a.aiType == aiTypeAnthropic {
-		fullResponse, err = a.generateAnthropicResponse(onChunk)
+	if a.aiType == constantpkg.AN {
+		fullResponse, err = a.genANResponse(onChunk)
 	} else {
-		fullResponse, err = a.generateDeepSeekResponse(onChunk)
+		fullResponse, err = a.genDSResponse(onChunk)
 	}
 
 	if err != nil {
@@ -106,8 +100,8 @@ func (a *Agent) GenerateResponse(userInput string, onChunk func(string)) error {
 	return nil
 }
 
-// generateAnthropicResponse 使用 Anthropic API 生成响应
-func (a *Agent) generateAnthropicResponse(onChunk func(string)) (string, error) {
+// genANResponse 使用 Anthropic API 生成响应
+func (a *Agent) genANResponse(onChunk func(string)) (string, error) {
 	history := a.getHistoryCopy()
 
 	// 分离 system prompt 和对话消息
@@ -128,7 +122,7 @@ func (a *Agent) generateAnthropicResponse(onChunk func(string)) (string, error) 
 	req := anthropicpkg.ChatRequest{
 		Messages:  chatMessages,
 		System:    systemContent,
-		Model:     modelAnthropic,
+		Model:     constantpkg.ANModel,
 		MaxTokens: 2048,
 		Stream:    true,
 	}
@@ -136,13 +130,13 @@ func (a *Agent) generateAnthropicResponse(onChunk func(string)) (string, error) 
 	return a.anthropicSvc.CreateChatCompletionStream(req, onChunk)
 }
 
-// generateDeepSeekResponse 使用 DeepSeek API 生成响应
-func (a *Agent) generateDeepSeekResponse(onChunk func(string)) (string, error) {
+// genDSResponse 使用 DeepSeek API 生成响应
+func (a *Agent) genDSResponse(onChunk func(string)) (string, error) {
 	messages := a.getHistoryCopy()
 
 	req := openai.ChatCompletionRequest{
 		Messages:    messages,
-		Model:       modelDeepSeek,
+		Model:       constantpkg.DSModel,
 		Temperature: 0.7,
 		Stream:      true,
 	}
